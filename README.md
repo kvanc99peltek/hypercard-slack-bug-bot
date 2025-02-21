@@ -1,2 +1,2 @@
-# -hypercard-slack-bug-bot
+# hypercard-slack-bug-bot
 Build faster, better stronger
