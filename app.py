@@ -2,10 +2,12 @@ import os
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
+from openai import Client
 
-import openai
 
 load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+client = Client(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Initialize your Slack Bolt app using your Bot token (xoxb-)
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
