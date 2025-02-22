@@ -1,30 +1,41 @@
 import os
-from slack_sdk import WebClient
-from slack_sdk.socket_mode import SocketModeClient
-from slack_sdk.socket_mode.request import SocketModeRequest
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
 
+import openai
+
 load_dotenv()
-print("Starting app...")
 
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
-SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
-print("Bot Token Received")
-print("App Token Received")
+# Initialize your Slack Bolt app using your Bot token (xoxb-)
+app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 
-slack_client = WebClient(token=SLACK_BOT_TOKEN)
-socket_client = SocketModeClient(app_token=SLACK_APP_TOKEN, web_client=slack_client)
+# Listen to messages that contain the trigger word "bug"
+@app.message("bug!")
+def handle_bug_report(message, say, logger):
+    user = message.get("user")
+    text = message.get("text", "")
+    subtype = message.get("subtype")
+    
+    # If the message is a file share (e.g., a screenshot), process the file attachments.
+    if subtype == "file_share":
+        files = message.get("files", [])
+        # Filter out only image files (screenshots)
+        screenshot_urls = [
+            f.get("url_private")
+            for f in files
+            if f.get("mimetype", "").startswith("image/")
+        ]
+        logger.info(f"File share from {user}: {screenshot_urls}")
+        response_text = f"Thanks <@{user}> for reporting the bug, we received your file share with {len(screenshot_urls)} screenshot!"
+    else:
+        # Otherwise, process text-based bug reports.
+        logger.info(f"Bug report received from {user}: {text}")
+        response_text = f"Thanks for reporting the bug, <@{user}>! We're processing your report."
+    
+    # Respond in the channel to acknowledge receipt.
+    say(response_text)
 
-def process_slack_event(req: SocketModeRequest):
-    print("Event received:", req.payload)  # Debug: log all events
-    event = req.payload.get("event", {})
-    if event.get("type") == "message" and event.get("channel") == "C08EF3B1EF7":
-        text = event.get("text", "")
-        user = event.get("user", "")
-        print(f"New message from {user} in bugs_channel: {text}")
-        # Further processing here
-        print("Print this if it comes here")
-    req.ack()
-socket_client.socket_mode_request_listeners.append(process_slack_event)
-print("Connecting to Slack Socket Mode...")
-socket_client.connect()
+if __name__ == "__main__":
+    # Start your app in Socket Mode using your App-Level token (xapp-)
+    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
