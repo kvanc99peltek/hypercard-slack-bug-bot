@@ -1,23 +1,42 @@
 import os
-from openai import Client
+import requests
+import json
 from dotenv import load_dotenv
 
-load_dotenv()  # This will load variables from .env into your environment
-api_key = os.getenv("OPENAI_API_KEY")
-print("OpenAI API Key is set:", bool(api_key))
+# Load environment variables from the .env file.
+load_dotenv()
 
-# Initialize the client with your API key
-client = Client(api_key=os.getenv("OPENAI_API_KEY"))
+# Retrieve your Linear API key.
+LINEAR_API_KEY = os.getenv("LINEAR_API_KEY")
+if not LINEAR_API_KEY:
+    raise ValueError("Please set the LINEAR_API_KEY environment variable.")
 
-# Create a chat completion using the new client interface.
-# Replace "gpt-4o-mini" with a model that you have access to if needed.
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[
-        {"role": "user", "content": "Say this is a test"}
-    ]
-)
+# Set the Linear GraphQL endpoint.
+url = "https://api.linear.app/graphql"
 
-# Print the request ID or the generated message content.
-# (The response structure may vary; here we print the message content.)
-print(response.choices[0].message.content)
+# Define a simple GraphQL query to fetch the authenticated user's details.
+query = """
+query Viewer {
+  viewer {
+    id
+    name
+    email
+  }
+}
+"""
+
+# Set up headers for authentication.
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"{LINEAR_API_KEY}"
+}
+
+# Build the payload.
+payload = {"query": query}
+
+# Send the POST request.
+response = requests.post(url, headers=headers, json=payload)
+data = response.json()
+
+# Print the response in a formatted JSON structure.
+print(json.dumps(data, indent=2))
