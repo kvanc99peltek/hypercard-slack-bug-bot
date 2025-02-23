@@ -4,40 +4,120 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
 from openai import Client
 
-
+# Load environment variables from the .env file.
 load_dotenv()
+
+# Initialize the OpenAI client with your API key.
 api_key = os.getenv("OPENAI_API_KEY")
-client = Client(api_key=os.getenv("OPENAI_API_KEY"))
+client = Client(api_key=api_key)
 
 # Initialize your Slack Bolt app using your Bot token (xoxb-)
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 
-# Listen to messages that contain the trigger word "bug"
+def enrich_bug_report(raw_text, screenshot_urls=None):
+    """
+    Uses the OpenAI API to format a raw bug report into a structured report that includes:
+      - Title
+      - Description
+      - Steps to Reproduce
+      - Expected Behavior
+      - Actual Behavior
+      - Priority
+      - Recommended Assignee (chosen from the team based on their expertise)
+    
+    Parameters:
+      - raw_text (str): The bug report text.
+      - screenshot_urls (list, optional): List of screenshot URLs attached to the report.
+    
+    Returns:
+      - str: The structured (enriched) bug report.
+    """
+    # Build the prompt with team member context
+    prompt = (
+        "You are an assistant that formats bug reports into a structured ticket format. "
+        "Given a raw bug report, produce a structured report that includes the following fields:\n"
+        "- **Title**\n"
+        "- **Description**\n"
+        "- **Steps to Reproduce**\n"
+        "- **Expected Behavior**\n"
+        "- **Actual Behavior**\n"
+        "- **Priority** (Low/Medium/High)\n"
+        "- **Recommended Assignee** (choose from the following team members based on their expertise)\n\n"
+        "Team Members:\n"
+        "1. **Nikolas Ioannou (Co-Founder):** Best used for strategic challenges and high-level product decisions, including refining user experience, defining the product vision, and aligning market positioning. Nikolas excels at evaluating complex feature requests and ensuring that each bug fix or enhancement aligns with our overarching business strategy.\n"
+        "2. **Bhavik Patel (Founding Engineer):** Best used for addressing core functionality issues, backend performance problems, and critical bugs that impact system reliability. Bhavik is ideal for deep-dive debugging, optimizing core algorithms, and ensuring that our backend infrastructure can keep up with rapid scaling and evolving demands.\n"
+        "3. **Rushil Nagarsheth (Founding Engineer):** Best used for managing infrastructure challenges, deployment processes, and system integrations. Rushil shines in setting up and maintaining CI/CD pipelines, troubleshooting production incidents, and ensuring smooth, scalable deployments that support fast iteration cycles.\n\n"
+        f"Bug Report Text: {raw_text}\n"
+    )
+    if screenshot_urls:
+        prompt += f"Attached Screenshots: {', '.join(screenshot_urls)}\n"
+    prompt += "\nStructured Report:"
+    
+    # Call the OpenAI API (adjust the model name if needed).
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You format bug reports into a structured ticket format."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7
+    )
+    return response.choices[0].message.content
+
+
+# def enrich_bug_report(raw_text, screenshot_urls=None):
+#     """
+#     Uses the OpenAI API to enrich a raw bug report by converting it into a structured format.
+#     The structured report should include a title, description, steps to reproduce, expected behavior,
+#     actual behavior, priority, and recommended assignee.
+    
+#     Parameters:
+#       - raw_text (str): The bug report text.
+#       - screenshot_urls (list, optional): List of screenshot URLs attached to the report.
+    
+#     Returns:
+#       - str: The enriched, structured bug report.
+#     """
+#     # Build the prompt for GPT.
+#     prompt = (
+#         "You are an assistant that formats bug reports. "
+#         "Given the following bug report, produce a structured report with a title, description, "
+#         "steps to reproduce, expected behavior, actual behavior, priority, and recommended assignee.\n\n"
+#         f"Bug Report Text: {raw_text}\n"
+#     )
+
+# Listen to messages that contain the trigger word "bug!"
 @app.message("bug!")
 def handle_bug_report(message, say, logger):
     user = message.get("user")
     text = message.get("text", "")
     subtype = message.get("subtype")
     
-    # If the message is a file share (e.g., a screenshot), process the file attachments.
+    screenshot_urls = []
+    # Process file attachments if the message is a file share.
     if subtype == "file_share":
         files = message.get("files", [])
-        # Filter out only image files (screenshots)
         screenshot_urls = [
             f.get("url_private")
             for f in files
             if f.get("mimetype", "").startswith("image/")
         ]
         logger.info(f"File share from {user}: {screenshot_urls}")
-        response_text = f"Thanks <@{user}> for reporting the bug, we received your file share with {len(screenshot_urls)} screenshot!"
-    else:
-        # Otherwise, process text-based bug reports.
-        logger.info(f"Bug report received from {user}: {text}")
-        response_text = f"Thanks for reporting the bug, <@{user}>! We're processing your report."
     
-    # Respond in the channel to acknowledge receipt.
-    say(response_text)
+    logger.info(f"Bug report received from {user}: {text}")
+    
+    try:
+        # Enrich the bug report using the GPT integration.
+        enriched_report = enrich_bug_report(text, screenshot_urls)
+        logger.info(f"Enriched Report: {enriched_report}")
+    except Exception as e:
+        logger.error(f"Error enriching bug report: {e}")
+        say(f"Sorry <@{user}>, there was an error processing your bug report.")
+        return
+    
+    # Respond in Slack with the enriched bug report.
+    say(f"Thanks for reporting the bug, <@{user}>! Here is the enriched bug report:\n```{enriched_report}```")
 
 if __name__ == "__main__":
-    # Start your app in Socket Mode using your App-Level token (xapp-)
+    # Start your Slack app in Socket Mode using your App-Level token (xapp-)
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
