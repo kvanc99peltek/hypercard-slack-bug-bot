@@ -36,20 +36,17 @@ def create_linear_ticket(enriched_report):
       }
     }
     """
-
-    # Use the extracted title from the enriched report (or parse it if needed).
-    # For now, we're using a fixed title for testing purposes.
     variables = {
         "input": {
             "teamId": team_id,
-            "title": "Test Issue from API",  # Later, parse the enriched report to extract a title.
+            "title": "Test Issue from API",  # Parse the enriched report to extract a title.
             "description": enriched_report
         }
     }
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": LINEAR_API_KEY  # For personal API keys, use the key directly.
+        "Authorization": LINEAR_API_KEY 
     }
 
     # Send the POST request.

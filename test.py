@@ -3,10 +3,9 @@ import requests
 import json
 from dotenv import load_dotenv
 
-# Load environment variables from the .env file.
 load_dotenv()
 
-# Retrieve your Linear API key.
+# Linear api key
 LINEAR_API_KEY = os.getenv("LINEAR_API_KEY")
 if not LINEAR_API_KEY:
     raise ValueError("Please set the LINEAR_API_KEY environment variable.")
@@ -14,7 +13,7 @@ if not LINEAR_API_KEY:
 # Set the Linear GraphQL endpoint.
 url = "https://api.linear.app/graphql"
 
-# Define a simple GraphQL query to fetch the authenticated user's details.
+# Define a simple GraphQL query
 query = """
 query Viewer {
   viewer {
