@@ -5,15 +5,14 @@ import re
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
-from openai import Client
+import openai  # Changed: import the module directly instead of Client
 from parse_fields import extract_title, extract_priority, extract_assignee, extract_labels
 
 # Load environment variables from the .env file.
 load_dotenv()
 
-# Initialize the OpenAI client.
-api_key = os.getenv("OPENAI_API_KEY")
-client = Client(api_key=api_key)
+# Initialize the OpenAI API key.
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Initialize Slack Bolt app using your Bot token.
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
@@ -23,7 +22,8 @@ def enrich_bug_report(raw_text, screenshot_urls=None):
     Uses the OpenAI API to enrich a raw bug report by converting it into a structured format.
     GPT will decide the priority (Urgent, High, Medium, or Low) and choose a label (Bug, Feature, or Improvement)
     based on the issue's severity.
-    If screenshot URLs exist, GPT is instructed to include them in an 'Attachments' section as clickable links.
+    If screenshot URLs exist, GPT is instructed to include them in an 'Attachments' section 
+    as clickable links.
     """
     
     # Build the prompt for GPT, instructing it to output each field in Markdown.
@@ -33,16 +33,16 @@ def enrich_bug_report(raw_text, screenshot_urls=None):
         "**Title:** <a concise summary of the issue>\n\n"
         "**Description:** <detailed explanation of the bug>\n\n"
         "**Priority:** <Urgent, High, Medium, or Low>\n\n"
-        "**Labels:** <choose one: Bug, Feature, or Improvement>\n\n"
         "**Recommended Assignee:** <choose the team member best suited>\n\n"
         "**Steps to Reproduce:**\n<list each step on its own line>\n\n"
         "**Expected Behavior:** <what should happen>\n\n"
         "**Actual Behavior:** <what is happening>\n\n"
+        "**Labels:** <choose one: Bug, Feature, or Improvement>\n\n"
         "**Attachments:** <if any, present them in the format [Screenshot of the issue](URL)>\n\n"
         "Team Members:\n"
-        "1. **Nikolas Ioannou (Co-Founder):** Best used for strategic challenges and high-level product decisions.\n"
-        "2. **Bhavik Patel (Founding Engineer):** Best used for addressing core functionality issues and backend performance problems.\n"
-        "3. **Rushil Nagarsheth (Founding Engineer):** Best used for managing infrastructure challenges and system integrations.\n\n"
+        "1. **Nikolas Ioannou (Co-Founder):** Best for strategic challenges and high-level product decisions.\n"
+        "2. **Bhavik Patel (Founding Engineer):** Best for addressing core functionality issues and backend performance problems.\n"
+        "3. **Rushil Nagarsheth (Founding Engineer):** Best for managing infrastructure challenges and system integrations.\n\n"
         "Raw Bug Report:\n"
         f"{raw_text}\n"
     )
@@ -55,7 +55,7 @@ def enrich_bug_report(raw_text, screenshot_urls=None):
         for url in screenshot_urls:
             prompt += f"- {url}\n"
 
-    response = client.chat.completions.create(
+    response = openai.ChatCompletion.create(
         model="gpt-4o-mini",  # Adjust model as needed.
         messages=[
             {
@@ -109,7 +109,7 @@ def create_linear_ticket(enriched_report):
     }
     assignee_id = ASSIGNEE_MAP.get(assignee_name)
     
-    # Map extracted labels to Linear label IDs.
+    # Map extracted labels to Linear label UUIDs.
     # These values can be set in your .env file or defaulted for testing.
     TICKET_TYPE_MAP = {
         "Bug": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
