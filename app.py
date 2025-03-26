@@ -181,6 +181,25 @@ def handle_bug_report(message, say, logger):
         thread_ts=message["ts"]
     )
 
+# New event for when the bot is mentioned.
+@app.event("app_mention")
+def handle_app_mention(event, say, logger):
+    user = event.get("user")
+    text = event.get("text", "")
+    thread_ts = event.get("ts")
+    logger.info(f"Bot was mentioned by {user}: {text}")
+    
+    try:
+        enriched_report = enrich_bug_report(text)
+        ticket = create_linear_ticket(enriched_report)
+        response_message = f"Thanks for reporting the bug, <@{user}>! A ticket has been created in Linear: {ticket.get('url', 'URL not available')}"
+    except Exception as e:
+        logger.error(f"Error processing bug report from mention: {e}")
+        response_message = f"Sorry <@{user}>, there was an error processing your bug report."
+    
+    say(text=response_message, thread_ts=thread_ts)
+
+
 # Minimal Flask app to bind to the $PORT for Heroku
 flask_app = Flask(__name__)
 
