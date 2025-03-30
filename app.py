@@ -19,7 +19,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # Initialize Slack Bolt app using your Bot token.
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 
-def enrich_bug_report(raw_text, screenshot_urls=None):
+def enrich_bug_report(raw_text, attachment_urls=None):
     prompt = (
         "You are the best AI product manager. Read the following raw bug report and produce "
         "a structured ticket with the following exact format:\n\n"
@@ -31,7 +31,7 @@ def enrich_bug_report(raw_text, screenshot_urls=None):
         "**Expected Behavior:** <what should happen>\n\n"
         "**Actual Behavior:** <what is happening>\n\n"
         "**Labels:** <choose one: Bug, Feature, or Improvement>\n\n"
-        "**Attachments:** <if any, present them in the format [Screenshot of the issue](URL)>\n\n"
+        "**Attachments:** <if any, present them in the format [Attachment](URL)>\n\n"
         "Team Members:\n"
         "1. **Nikolas Ioannou (Co-Founder):** Best for strategic challenges and high-level product decisions.\n"
         "2. **Bhavik Patel (Founding Engineer):** Best for addressing core functionality issues and backend performance problems.\n"
@@ -40,12 +40,12 @@ def enrich_bug_report(raw_text, screenshot_urls=None):
         f"{raw_text}\n"
     )
     
-    if screenshot_urls:
+    if attachment_urls:
         prompt += (
-            "\nPlease include each screenshot as a Markdown link in the 'Attachments' section, "
-            "for example: [Screenshot of the issue](URL).\nHere are the screenshot URLs:\n"
+            "\nPlease include each attachment (image or video) as a Markdown link in the 'Attachments' section, "
+            "for example: [Attachment](URL).\nHere are the attachment URLs:\n"
         )
-        for url in screenshot_urls:
+        for url in attachment_urls:
             prompt += f"- {url}\n"
 
     response = openai.ChatCompletion.create(
@@ -81,12 +81,19 @@ def create_linear_ticket(enriched_report):
     priority_map = {"low": 0, "medium": 1, "high": 2}
     priority = priority_map.get(priority_str.lower(), 1) if priority_str else 1
     
+    # Normalize the extracted assignee name to lowercase
+    assignee_name = assignee_name.lower() if assignee_name else ""
+    # Updated assignee mapping with lowercase keys.
     ASSIGNEE_MAP = {
-        "Nikolas Ioannou": None,
-        "Bhavik Patel": None,
-        "Rushil Nagarsheth": None
+        "tut50103": "a788f89f-f3cd-4a56-8194-b2986a91f306",
+        "nikolas ioannou": "a788f89f-f3cd-4a56-8194-b2986a91f306",
+        # "nikolas ioannou": "4c6b43ac-b384-42eb-8715-cfa156f58400",
+        "bhavik patel": "4c6b43ac-b384-42eb-8715-cfa156f58400",
+        # "rushil nagarsheth": "PUT_LINEAR_USER_ID_FOR_RUSHIL"
     }
+    
     assignee_id = ASSIGNEE_MAP.get(assignee_name)
+    print("Extracted assignee:", assignee_name)  # Debug logging
     
     TICKET_TYPE_MAP = {
         "Bug": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
@@ -146,22 +153,21 @@ def create_linear_ticket(enriched_report):
 def handle_bug_report(message, say, logger):
     user = message.get("user")
     text = message.get("text", "")
-    subtype = message.get("subtype")
     
-    screenshot_urls = []
+    # Collect all attachments (images and videos)
+    attachment_urls = []
     files = message.get("files", [])
     if files:
-        screenshot_urls = [
-            f.get("url_private")
-            for f in files
-            if f.get("mimetype", "").startswith("image/")
-        ]
-        logger.info(f"File share from {user}: {screenshot_urls}")
+        for f in files:
+            mimetype = f.get("mimetype", "")
+            if mimetype.startswith("image/") or mimetype.startswith("video/"):
+                attachment_urls.append(f.get("url_private"))
+        logger.info(f"Attachments from {user}: {attachment_urls}")
     
     logger.info(f"Bug report received from {user}: {text}")
     
     try:
-        enriched_report = enrich_bug_report(text, screenshot_urls)
+        enriched_report = enrich_bug_report(text, attachment_urls)
         logger.info(f"Enriched Report: {enriched_report}")
     except Exception as e:
         logger.error(f"Error enriching bug report: {e}")
@@ -181,7 +187,6 @@ def handle_bug_report(message, say, logger):
         thread_ts=message["ts"]
     )
 
-# New event for when the bot is mentioned.
 @app.event("app_mention")
 def handle_app_mention(event, say, logger):
     user = event.get("user")
@@ -198,7 +203,6 @@ def handle_app_mention(event, say, logger):
         response_message = f"Sorry <@{user}>, there was an error processing your bug report."
     
     say(text=response_message, thread_ts=thread_ts)
-
 
 # Minimal Flask app to bind to the $PORT for Heroku
 flask_app = Flask(__name__)
@@ -217,5 +221,5 @@ if __name__ == "__main__":
     bot_thread.start()
     
     # Bind Flask to the $PORT provided by Heroku.
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5002))
     flask_app.run(host="0.0.0.0", port=port)
