@@ -19,21 +19,20 @@ def extract_assignee(enriched_report):
     """
     match = re.search(r"\*\*Recommended Assignee:\*\*\s*(.+)", enriched_report)
     if match:
-        # Remove any extra details in parentheses.
         assignee_line = match.group(1).strip()
+        # Remove details in parentheses.
         return re.sub(r"\s*\(.*\)$", "", assignee_line).strip()
     return None
-
-import re
 
 def extract_labels(enriched_report):
     """
     Extracts a list of labels from the enriched report.
     Looks for a line like: **Labels:** Bug, Feature, Improvement
-    If no labels are found, it falls back to checking the title.
-    If the title contains 'feature' or 'improvement', returns that,
-    otherwise defaults to ['Bug'].
+    If no labels are found, it falls back to checking the title for keywords.
+    If the title contains 'feature' or 'improvement', returns that label;
+    otherwise, it defaults to ['Bug'].
     """
+    # Attempt to extract labels from the enriched report.
     match = re.search(r"\*\*Labels:\*\*\s*(.+)", enriched_report)
     if match:
         labels_str = match.group(1)
@@ -41,7 +40,7 @@ def extract_labels(enriched_report):
         if extracted_labels:
             return extracted_labels
 
-    # Fallback: Check if the title contains keywords for Feature or Improvement.
+    # Fallback: examine the title for keywords.
     title_match = re.search(r"\*\*Title:\*\*\s*(.+)", enriched_report)
     if title_match:
         title = title_match.group(1).strip().lower()
@@ -50,10 +49,9 @@ def extract_labels(enriched_report):
         elif "improvement" in title:
             return ["Improvement"]
     
-    # Default to "Bug" if no labels are extracted.
+    # Default label if nothing else is found.
     return ["Bug"]
 
-# Optional: A helper function to extract the title
 def extract_title(enriched_report):
     """
     Extracts the Title from the enriched report.
@@ -87,7 +85,6 @@ if __name__ == "__main__":
 
     **Actual Behavior:** The carousel remains static, displaying only the first image.
     """
-
     print("Extracted Title:", extract_title(sample_report))
     print("Extracted Priority:", extract_priority(sample_report))
     print("Extracted Assignee:", extract_assignee(sample_report))
