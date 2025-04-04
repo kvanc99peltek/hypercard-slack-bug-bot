@@ -1,6 +1,7 @@
 import os
 import requests
 import json
+import re
 from threading import Thread
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -39,7 +40,6 @@ def enrich_bug_report(raw_text, attachment_urls=None):
         f"{raw_text}\n"
     )
     
-    # Append attachments (images and videos) as Markdown links.
     if attachment_urls:
         prompt += (
             "\nPlease include each attachment (image or video) as a Markdown link in the 'Attachments' section, "
@@ -81,8 +81,9 @@ def create_linear_ticket(enriched_report):
     priority_map = {"low": 0, "medium": 1, "high": 2}
     priority = priority_map.get(priority_str.lower(), 1) if priority_str else 1
     
-    # Normalize assignee name for case-insensitive matching.
+    # Normalize the extracted assignee name to lowercase
     assignee_name = assignee_name.lower() if assignee_name else ""
+    # Updated assignee mapping with lowercase keys.
     ASSIGNEE_MAP = {
         "tut50103": "a788f89f-f3cd-4a56-8194-b2986a91f306",
         "nikolas ioannou": "a788f89f-f3cd-4a56-8194-b2986a91f306",
@@ -92,7 +93,7 @@ def create_linear_ticket(enriched_report):
     }
     
     assignee_id = ASSIGNEE_MAP.get(assignee_name)
-    print("Extracted assignee:", assignee_name)
+    print("Extracted assignee:", assignee_name)  # Debug logging
     
     TICKET_TYPE_MAP = {
         "Bug": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
@@ -153,7 +154,7 @@ def handle_bug_report(message, say, logger):
     user = message.get("user")
     text = message.get("text", "")
     
-    # Collect attachments (both images and videos) using Slack's private URLs.
+    # Collect all attachments (images and videos)
     attachment_urls = []
     files = message.get("files", [])
     if files:
