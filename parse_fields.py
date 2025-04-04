@@ -15,15 +15,13 @@ def extract_assignee(enriched_report):
     """
     Extracts the Recommended Assignee from the enriched report.
     Looks for a line like: **Recommended Assignee:** Bhavik Patel (Founding Engineer)
-    Returns the assignee's name without the role details in parentheses.
+    Returns the assignee's name without any role details.
     """
     match = re.search(r"\*\*Recommended Assignee:\*\*\s*([^(\n]+)", enriched_report)
     if match:
-        # Get the full name and remove any trailing spaces
+        # Get the name, strip whitespace and remove any extra info in parentheses or after a comma/dash.
         name = match.group(1).strip()
-        # Remove any text in parentheses and surrounding whitespace
         name = re.sub(r'\s*\([^)]*\)', '', name).strip()
-        # Remove any role/title that might come after a dash or comma
         name = re.split(r'[-,]', name)[0].strip()
         return name
     return None
@@ -31,12 +29,10 @@ def extract_assignee(enriched_report):
 def extract_labels(enriched_report):
     """
     Extracts a list of labels from the enriched report.
-    Looks for a line like: **Labels:** Bug, Feature, Improvement
-    If no labels are found, it falls back to checking the title for keywords.
-    If the title contains 'feature' or 'improvement', returns that label;
-    otherwise, it defaults to ['Bug'].
+    Looks for a line like: **Labels:** Bug, Feature, Improvement.
+    If no labels are found, it falls back to checking the title for keywords;
+    otherwise, defaults to ['Bug'].
     """
-    # Attempt to extract labels from the enriched report.
     match = re.search(r"\*\*Labels:\*\*\s*(.+)", enriched_report)
     if match:
         labels_str = match.group(1)
@@ -53,19 +49,29 @@ def extract_labels(enriched_report):
         elif "improvement" in title:
             return ["Improvement"]
     
-    # Default label if nothing else is found.
     return ["Bug"]
 
 def extract_title(enriched_report):
     """
     Extracts the Title from the enriched report.
-    Looks for a line like: **Title:** Homepage Carousel Not Cycling Through Images
+    Looks for a line like: **Title:** Homepage Carousel Not Cycling Through Images.
     Returns the title string.
     """
     match = re.search(r"\*\*Title:\*\*\s*(.+)", enriched_report)
     if match:
         return match.group(1).strip()
     return "Bug Report Ticket"
+
+def extract_description(enriched_report):
+    """
+    Extracts the Description from the enriched report.
+    Looks for a section starting with **Description:** and ending with a blank line or the end of the text.
+    Returns the description text.
+    """
+    match = re.search(r"\*\*Description:\*\*\s*(.+?)(\n\s*\n|\Z)", enriched_report, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return "No description provided."
 
 # Quick test of these functions using a sample enriched report.
 if __name__ == "__main__":
@@ -90,6 +96,7 @@ if __name__ == "__main__":
     **Actual Behavior:** The carousel remains static, displaying only the first image.
     """
     print("Extracted Title:", extract_title(sample_report))
+    print("Extracted Description:", extract_description(sample_report))
     print("Extracted Priority:", extract_priority(sample_report))
     print("Extracted Assignee:", extract_assignee(sample_report))
     print("Extracted Labels:", extract_labels(sample_report))
