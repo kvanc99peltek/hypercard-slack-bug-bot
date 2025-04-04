@@ -40,7 +40,8 @@ def enrich_bug_report(raw_text, screenshot_urls=None):
         f"{raw_text}\n"
     )
     
-    if screenshot_urls:
+    # Append attachments (images and videos) as Markdown links.
+    if attachment_urls:
         prompt += (
             "\nPlease include each screenshot as a Markdown link in the 'Attachments' section, "
             "for example: [Screenshot of the issue](URL).\nHere are the screenshot URLs:\n"
@@ -81,12 +82,15 @@ def create_linear_ticket(enriched_report):
     priority_map = {"low": 0, "medium": 1, "high": 2}
     priority = priority_map.get(priority_str.lower(), 1) if priority_str else 1
     
+    # Normalize assignee name for case-insensitive matching.
+    assignee_name = assignee_name.lower() if assignee_name else ""
     ASSIGNEE_MAP = {
         "Nikolas Ioannou": None,
         "Bhavik Patel": None,
         "Rushil Nagarsheth": None
     }
     assignee_id = ASSIGNEE_MAP.get(assignee_name)
+    print("Extracted assignee:", assignee_name)
     
     TICKET_TYPE_MAP = {
         "Bug": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
@@ -148,7 +152,8 @@ def handle_bug_report(message, say, logger):
     text = message.get("text", "")
     subtype = message.get("subtype")
     
-    screenshot_urls = []
+    # Collect attachments (both images and videos) using Slack's private URLs.
+    attachment_urls = []
     files = message.get("files", [])
     if files:
         screenshot_urls = [
