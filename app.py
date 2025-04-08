@@ -1,14 +1,14 @@
 import os
+import re
 import requests
 import json
-import re
 from threading import Thread
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from flask import Flask
 from dotenv import load_dotenv
 import openai
-from parse_fields import extract_title, extract_priority, extract_assignee, extract_labels
+from parse_fields import extract_title, extract_priority, extract_assignee, extract_labels, extract_description
 
 # Load environment variables from the .env file.
 load_dotenv()
@@ -19,19 +19,15 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # Initialize Slack Bolt app using your Bot token.
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 
-def enrich_bug_report(raw_text, screenshot_urls=None):
+def enrich_bug_report(raw_text):
     prompt = (
         "You are the best AI product manager. Read the following raw bug report and produce "
         "a structured ticket with the following exact format:\n\n"
-        "**Title:** <a concise summary of the issue>\n\n"
         "**Description:** <detailed explanation of the bug>\n\n"
         "**Priority:** <Urgent, High, Medium, or Low>\n\n"
         "**Recommended Assignee:** <choose the team member best suited>\n\n"
-        "**Steps to Reproduce:**\n<list each step on its own line>\n\n"
-        "**Expected Behavior:** <what should happen>\n\n"
-        "**Actual Behavior:** <what is happening>\n\n"
         "**Labels:** <choose one: Bug, Feature, or Improvement>\n\n"
-        "**Attachments:** <if any, present them in the format [Screenshot of the issue](URL)>\n\n"
+        "**Title:** <a concise summary of the issue>\n\n"
         "Team Members:\n"
         "1. **Nikolas Ioannou (Co-Founder):** Best for strategic challenges and high-level product decisions.\n"
         "2. **Bhavik Patel (Founding Engineer):** Best for addressing core functionality issues and backend performance problems.\n"
@@ -39,30 +35,31 @@ def enrich_bug_report(raw_text, screenshot_urls=None):
         "Raw Bug Report:\n"
         f"{raw_text}\n"
     )
-    
-    if attachment_urls:
-        prompt += (
-            "\nPlease include each screenshot as a Markdown link in the 'Attachments' section, "
-            "for example: [Screenshot of the issue](URL).\nHere are the screenshot URLs:\n"
-        )
-        for url in screenshot_urls:
-            prompt += f"- {url}\n"
 
     response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You format bug reports into a structured ticket format with the specified style. "
-                    "Make sure your final output exactly follows the Markdown headings as given."
+                    "You format bug reports into a structured ticket exactly following the Markdown format provided. "
+                    "Do not alter the markdown syntax. Do not include any section with 'Attachments:' in your response."
                 )
             },
             {"role": "user", "content": prompt}
         ],
         temperature=0.7
     )
-    return response.choices[0].message.content
+    ticket = response.choices[0].message.content
+
+    # First, remove any lines that start with 'attachments:' (case-insensitive)
+    ticket = re.sub(r"(?im)^\s*attachments:.*(?:\n|$)", "", ticket)
+    # Then, remove any block that starts with '**Attachments:**' until the next header or end-of-string.
+    ticket = re.sub(r"(?is)\*\*Attachments:\*\*.*?(?=\n\*\*|$)", "", ticket)
+    # Specifically target "Attachments: None" pattern
+    ticket = re.sub(r"(?is)\*\*Attachments:\*\*\s*None.*?(?=\n\*\*|$)", "", ticket)
+
+    return ticket
 
 def create_linear_ticket(enriched_report):
     LINEAR_API_KEY = os.getenv("LINEAR_API_KEY")
@@ -71,26 +68,28 @@ def create_linear_ticket(enriched_report):
     if not LINEAR_API_KEY or not LINEAR_TEAM_ID:
         raise ValueError("Please ensure LINEAR_API_KEY and LINEAR_TEAM_ID are set in your environment.")
     
+    # Extract fields from the GPT output.
     title = extract_title(enriched_report)
+    description = extract_description(enriched_report)  # Extract only the description portion.
     priority_str = extract_priority(enriched_report)
     assignee_name = extract_assignee(enriched_report)
     labels = extract_labels(enriched_report)
+    
     if not labels:
         labels = ["Bug"]
     
     priority_map = {"low": 0, "medium": 1, "high": 2}
     priority = priority_map.get(priority_str.lower(), 1) if priority_str else 1
     
-    # Normalize the extracted assignee name to lowercase
+    # Normalize assignee name for case-insensitive matching.
     assignee_name = assignee_name.lower() if assignee_name else ""
-    # Updated assignee mapping with lowercase keys.
     ASSIGNEE_MAP = {
-        "Nikolas Ioannou": None,
-        "Bhavik Patel": None,
-        "Rushil Nagarsheth": None
+        "nikolas ioannou": "a788f89f-f3cd-4a56-8194-b2986a91f306",
+        "bhavik patel": "4c6b43ac-b384-42eb-8715-cfa156f58400"
     }
+    
     assignee_id = ASSIGNEE_MAP.get(assignee_name)
-    print("Extracted assignee:", assignee_name)  # Debug logging
+    print("Extracted assignee:", assignee_name)
     
     TICKET_TYPE_MAP = {
         "Bug": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
@@ -109,7 +108,7 @@ def create_linear_ticket(enriched_report):
         "input": {
             "teamId": LINEAR_TEAM_ID,
             "title": title,
-            "description": enriched_report,
+            "description": description,
             "priority": priority
         }
     }
@@ -146,47 +145,6 @@ def create_linear_ticket(enriched_report):
     
     return result["data"]["issueCreate"]["issue"]
 
-@app.message("bug!")
-def handle_bug_report(message, say, logger):
-    user = message.get("user")
-    text = message.get("text", "")
-    subtype = message.get("subtype")
-    
-    # Collect all attachments (images and videos)
-    attachment_urls = []
-    files = message.get("files", [])
-    if files:
-        screenshot_urls = [
-            f.get("url_private")
-            for f in files
-            if f.get("mimetype", "").startswith("image/")
-        ]
-        logger.info(f"File share from {user}: {screenshot_urls}")
-    
-    logger.info(f"Bug report received from {user}: {text}")
-    
-    try:
-        enriched_report = enrich_bug_report(text, screenshot_urls)
-        logger.info(f"Enriched Report: {enriched_report}")
-    except Exception as e:
-        logger.error(f"Error enriching bug report: {e}")
-        say(text=f"Sorry <@{user}>, there was an error processing your bug report.", thread_ts=message["ts"])
-        return
-    
-    try:
-        ticket = create_linear_ticket(enriched_report)
-        logger.info(f"Linear Ticket Created: {ticket}")
-    except Exception as e:
-        logger.error(f"Error creating Linear ticket: {e}")
-        say(text=f"Bug report processed, but we couldn't create a ticket in Linear at this time.", thread_ts=message["ts"])
-        return
-    
-    say(
-        text=f"Thanks for reporting the bug, <@{user}>! A ticket has been created in Linear: {ticket.get('url', 'URL not available')}",
-        thread_ts=message["ts"]
-    )
-
-# New event for when the bot is mentioned.
 @app.event("app_mention")
 def handle_app_mention(event, say, logger):
     user = event.get("user")
@@ -204,8 +162,7 @@ def handle_app_mention(event, say, logger):
     
     say(text=response_message, thread_ts=thread_ts)
 
-
-# Minimal Flask app to bind to the $PORT for Heroku
+# Minimal Flask app to bind to the $PORT for Heroku.
 flask_app = Flask(__name__)
 
 @flask_app.route("/")
@@ -222,5 +179,5 @@ if __name__ == "__main__":
     bot_thread.start()
     
     # Bind Flask to the $PORT provided by Heroku.
-    port = int(os.environ.get("PORT", 5002))
+    port = int(os.environ.get("PORT", 5001))
     flask_app.run(host="0.0.0.0", port=port)
