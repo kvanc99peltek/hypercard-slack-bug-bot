@@ -7,14 +7,16 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from flask import Flask
 from dotenv import load_dotenv
-import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 from parse_fields import extract_title, extract_priority, extract_assignee, extract_labels, extract_description
+
 
 # Load environment variables from the .env file.
 load_dotenv()
 
 # Set OpenAI API key.
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Initialize Slack Bolt app using your Bot token.
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
@@ -36,20 +38,18 @@ def enrich_bug_report(raw_text):
         f"{raw_text}\n"
     )
 
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You format bug reports into a structured ticket exactly following the Markdown format provided. "
-                    "Do not alter the markdown syntax. Do not include any section with 'Attachments:' in your response."
-                )
-            },
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7
-    )
+    response = client.chat.completions.create(model="gpt-4o",
+    messages=[
+        {
+            "role": "system",
+            "content": (
+                "You format bug reports into a structured ticket exactly following the Markdown format provided. "
+                "Do not alter the markdown syntax. Do not include any section with 'Attachments:' in your response."
+            )
+        },
+        {"role": "user", "content": prompt}
+    ],
+    temperature=0.7)
     ticket = response.choices[0].message.content
 
     # First, remove any lines that start with 'attachments:' (case-insensitive)
@@ -64,33 +64,34 @@ def enrich_bug_report(raw_text):
 def create_linear_ticket(enriched_report):
     LINEAR_API_KEY = os.getenv("LINEAR_API_KEY")
     LINEAR_TEAM_ID = os.getenv("LINEAR_TEAM_ID")
-    
+
     if not LINEAR_API_KEY or not LINEAR_TEAM_ID:
         raise ValueError("Please ensure LINEAR_API_KEY and LINEAR_TEAM_ID are set in your environment.")
-    
+
     # Extract fields from the GPT output.
     title = extract_title(enriched_report)
     description = extract_description(enriched_report)  # Extract only the description portion.
     priority_str = extract_priority(enriched_report)
     assignee_name = extract_assignee(enriched_report)
     labels = extract_labels(enriched_report)
-    
+
     if not labels:
         labels = ["Bug"]
-    
+
     priority_map = {"low": 0, "medium": 1, "high": 2}
     priority = priority_map.get(priority_str.lower(), 1) if priority_str else 1
-    
+
     # Normalize assignee name for case-insensitive matching.
     assignee_name = assignee_name.lower() if assignee_name else ""
     ASSIGNEE_MAP = {
         "nikolas ioannou": "a788f89f-f3cd-4a56-8194-b2986a91f306",
-        "bhavik patel": "4c6b43ac-b384-42eb-8715-cfa156f58400"
+        "bhavik patel": "4c6b43ac-b384-42eb-8715-cfa156f58400",
+        "kp07usa": "4c6b43ac-b384-42eb-8715-cfa156f58400"  # Default assignee
     }
-    
-    assignee_id = ASSIGNEE_MAP.get(assignee_name)
+
+    assignee_id = ASSIGNEE_MAP.get(assignee_name, ASSIGNEE_MAP["kp07usa"])  # Use kp07usa as fallback
     print("Extracted assignee:", assignee_name)
-    
+
     TICKET_TYPE_MAP = {
         "Bug": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
         "Feature": os.getenv("LINEAR_FEATURE_LABEL_ID", "504d1625-23fb-41ac-afea-e46bcabb4e53"),
@@ -103,7 +104,7 @@ def create_linear_ticket(enriched_report):
             mapped_labels.append(TICKET_TYPE_MAP[normalized])
     if not mapped_labels:
         mapped_labels = [TICKET_TYPE_MAP["Bug"]]
-    
+
     variables = {
         "input": {
             "teamId": LINEAR_TEAM_ID,
@@ -116,9 +117,9 @@ def create_linear_ticket(enriched_report):
         variables["input"]["assigneeId"] = assignee_id
     if mapped_labels:
         variables["input"]["labelIds"] = mapped_labels
-    
+
     url = "https://api.linear.app/graphql"
-    
+
     mutation = """
     mutation IssueCreate($input: IssueCreateInput!) {
       issueCreate(input: $input) {
@@ -131,18 +132,18 @@ def create_linear_ticket(enriched_report):
       }
     }
     """
-    
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": LINEAR_API_KEY
     }
-    
+
     response = requests.post(url, headers=headers, json={"query": mutation, "variables": variables})
     result = response.json()
-    
+
     if "errors" in result:
         raise Exception(f"Linear API error: {result['errors']}")
-    
+
     return result["data"]["issueCreate"]["issue"]
 
 @app.event("app_mention")
@@ -151,7 +152,7 @@ def handle_app_mention(event, say, logger):
     text = event.get("text", "")
     thread_ts = event.get("ts")
     logger.info(f"Bot was mentioned by {user}: {text}")
-    
+
     try:
         enriched_report = enrich_bug_report(text)
         ticket = create_linear_ticket(enriched_report)
@@ -159,7 +160,7 @@ def handle_app_mention(event, say, logger):
     except Exception as e:
         logger.error(f"Error processing bug report from mention: {e}")
         response_message = f"Sorry <@{user}>, there was an error processing your bug report."
-    
+
     say(text=response_message, thread_ts=thread_ts)
 
 # Minimal Flask app to bind to the $PORT for Heroku.
@@ -174,10 +175,10 @@ if __name__ == "__main__":
     def start_bot():
         handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
         handler.start()
-    
+
     bot_thread = Thread(target=start_bot)
     bot_thread.start()
-    
+
     # Bind Flask to the $PORT provided by Heroku.
     port = int(os.environ.get("PORT", 5005))
     flask_app.run(host="0.0.0.0", port=port)
