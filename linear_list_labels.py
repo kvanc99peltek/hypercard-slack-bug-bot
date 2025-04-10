@@ -7,9 +7,13 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from flask import Flask
 from dotenv import load_dotenv
-from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+import openai
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# from openai import OpenAI
+
+# client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 from parse_fields import extract_title, extract_priority, extract_assignee, extract_labels, extract_description
 
 
@@ -33,7 +37,8 @@ def enrich_bug_report(raw_text):
         "Team Members:\n"
         "1. **Nikolas Ioannou (Co-Founder):** Best for strategic challenges and high-level product decisions.\n"
         "2. **Bhavik Patel (Founding Engineer):** Best for addressing core functionality issues and backend performance problems.\n"
-        "3. **Rushil Nagarsheth (Founding Engineer):** Best for managing infrastructure challenges and system integrations.\n\n"
+        "3. **Aaron (Frontend Engineer):** Best for addressing frontend issues and UI/UX problems.\n"
+        "4. **Rushil Nagarsheth (Founding Engineer):** Best for managing infrastructure challenges and system integrations.\n\n"
         "Raw Bug Report:\n"
         f"{raw_text}\n"
     )
@@ -84,22 +89,29 @@ def create_linear_ticket(enriched_report):
     # Normalize assignee name for case-insensitive matching.
     assignee_name = assignee_name.lower() if assignee_name else ""
     ASSIGNEE_MAP = {
-        "tut50103": "a788f89f-f3cd-4a56-8194-b2986a91f306",
-        "nikolas ioannou": "4c6b43ac-b384-42eb-8715-cfa156f58400",
-        "bhavik patel": "a788f89f-f3cd-4a56-8194-b2986a91f306",
-        "kp07usa": "4c6b43ac-b384-42eb-8715-cfa156f58400",
-        "rushil nagarsheth": "4c6b43ac-b384-42eb-8715-cfa156f58400",
-        "manas": "a788f89f-f3cd-4a56-8194-b2986a91f306",
-        "aaron": "a788f89f-f3cd-4a56-8194-b2986a91f306",
+        "": "",
+        "nikolas ioannou": "93d4b23a-0c5a-4dc1-81d8-45d82684e9d4",
+        "bhavik patel": "14543ff1-21dd-4e1d-ad23-bbf33d814ac0",
+        "rushil nagarsheth": "094f80e8-8853-40ca-837f-81e0b2b2b07f",
+        "aaron": "f5bc2d04-c905-4aa2-a25f-bbaa1e4af763",
     }
 
-    assignee_id = ASSIGNEE_MAP.get(assignee_name, ASSIGNEE_MAP["kp07usa"])  # Use kp07usa as fallback
-    print("Extracted assignee:", assignee_name)
+    assignee_id = ASSIGNEE_MAP.get(assignee_name)
+    if not assignee_id:
+        print(f"Warning: Assignee '{assignee_name}' not found in the mapping. Falling back to 'aaron'.")
+        assignee_id = ASSIGNEE_MAP["aaron"]
 
     TICKET_TYPE_MAP = {
-        "Bug": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
-        "Feature": os.getenv("LINEAR_FEATURE_LABEL_ID", "504d1625-23fb-41ac-afea-e46bcabb4e53"),
-        "Improvement": os.getenv("LINEAR_IMPROVEMENT_LABEL_ID", "3688793e-2c4c-4e5b-a261-81f365f283f8")
+        "Bug Bot": os.getenv("LINEAR_BUG_LABEL_ID", "74ecf219-8bfd-4944-b106-4b42273f84a8"),
+        "In QA": os.getenv("LINEAR_IN_QA_LABEL_ID", "ce778bdc-39e1-4a1b-a546-488fde56252b"),
+        "Internal Admin": os.getenv("LINEAR_CORE_WEB_LABEL_ID", "031c70bb-cc93-40ec-a3dd-7ed36bc19b23"),
+        "Core Web": os.getenv("LINEAR_BUG_LAB", "1d8a8a3d-5813-439f-a421-641875357c99"),
+        "Core Mobile": os.getenv("LINEAR_BUG_LABEL_ID", "361e454d-9f41-494f-95ad-04301dbb3231"),
+        "Backend": os.getenv("LINEAR_BUG_LABEL_ID", "c3aa8f63-f8c8-4d22-915e-6ddab30829d7"),
+        # "QA'd --> Functional": os.getenv("LINEAR_INTERNAL_ADMIN_LABEL_ID", "d8a01af7-45ed-4257-b039-7f1c0d4fab92"),
+        # "Feature": os.getenv("LINEAR_FEATURE_LABEL_ID", "504d1625-23fb-41ac-afea-e46bcabb4e53"),
+        # "Improvement": os.getenv("LINEAR_IMPROVEMENT_LABEL_ID", "3688793e-2c4c-4e5b-a261-81f365f283f8")
+
     }
     mapped_labels = []
     for label in labels:
@@ -184,5 +196,5 @@ if __name__ == "__main__":
     bot_thread.start()
 
     # Bind Flask to the $PORT provided by Heroku.
-    port = int(os.environ.get("PORT", 5005))
+    port = int(os.environ.get("PORT", 5003))
     flask_app.run(host="0.0.0.0", port=port)
