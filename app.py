@@ -77,7 +77,61 @@ def enrich_bug_report(raw_text):
 
     return ticket
 
-def create_linear_ticket(enriched_report):
+def upload_file_to_linear(file_url, file_name, content_type):
+    """
+    Uploads a file to Linear and returns the upload URL.
+    """
+    LINEAR_API_KEY = os.getenv("LINEAR_API_KEY")
+    
+    # First, get the upload URL from Linear
+    upload_url_query = """
+    mutation UploadFile($contentType: String!, $filename: String!) {
+        uploadFile(contentType: $contentType, filename: $filename) {
+            uploadUrl
+            assetUrl
+        }
+    }
+    """
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": LINEAR_API_KEY
+    }
+    
+    variables = {
+        "contentType": content_type,
+        "filename": file_name
+    }
+    
+    response = requests.post(
+        "https://api.linear.app/graphql",
+        headers=headers,
+        json={"query": upload_url_query, "variables": variables}
+    )
+    
+    if response.status_code != 200:
+        raise Exception(f"Failed to get upload URL: {response.text}")
+    
+    upload_data = response.json()["data"]["uploadFile"]
+    
+    # Download the file from Slack
+    file_response = requests.get(file_url)
+    if file_response.status_code != 200:
+        raise Exception(f"Failed to download file from Slack: {file_response.text}")
+    
+    # Upload the file to Linear
+    upload_response = requests.put(
+        upload_data["uploadUrl"],
+        data=file_response.content,
+        headers={"Content-Type": content_type}
+    )
+    
+    if upload_response.status_code != 200:
+        raise Exception(f"Failed to upload file to Linear: {upload_response.text}")
+    
+    return upload_data["assetUrl"]
+
+def create_linear_ticket(enriched_report, attachments=None):
     LINEAR_API_KEY = os.getenv("LINEAR_API_KEY")
     LINEAR_TEAM_ID = os.getenv("LINEAR_TEAM_ID")
 
@@ -86,7 +140,7 @@ def create_linear_ticket(enriched_report):
 
     # Extract fields from the GPT output.
     title = extract_title(enriched_report)
-    description = extract_description(enriched_report)  # Extract only the description portion.
+    description = extract_description(enriched_report)
     priority_str = extract_priority(enriched_report)
     assignee_name = extract_assignee(enriched_report)
     labels = extract_labels(enriched_report)
@@ -109,7 +163,7 @@ def create_linear_ticket(enriched_report):
         "aaron": "a788f89f-f3cd-4a56-8194-b2986a91f306",
     }
 
-    assignee_id = ASSIGNEE_MAP.get(assignee_name, ASSIGNEE_MAP["kp07usa"])  # Use kp07usa as fallback
+    assignee_id = ASSIGNEE_MAP.get(assignee_name, ASSIGNEE_MAP["kp07usa"])
     print("Extracted assignee:", assignee_name)
 
     TICKET_TYPE_MAP = {
@@ -124,6 +178,27 @@ def create_linear_ticket(enriched_report):
             mapped_labels.append(TICKET_TYPE_MAP[normalized])
     if not mapped_labels:
         mapped_labels = [TICKET_TYPE_MAP["Bug"]]
+
+    # Handle attachments if present
+    attachment_urls = []
+    if attachments:
+        for attachment in attachments:
+            try:
+                file_url = attachment.get("url_private")
+                file_name = attachment.get("name")
+                content_type = attachment.get("mimetype")
+                
+                if file_url and file_name and content_type:
+                    asset_url = upload_file_to_linear(file_url, file_name, content_type)
+                    attachment_urls.append(asset_url)
+            except Exception as e:
+                print(f"Failed to process attachment: {e}")
+
+    # Add attachment URLs to description if any
+    if attachment_urls:
+        description += "\n\n**Attachments:**\n"
+        for url in attachment_urls:
+            description += f"- {url}\n"
 
     variables = {
         "input": {
@@ -171,6 +246,7 @@ def handle_app_mention(event, say, logger):
     user = event.get("user")
     text = event.get("text", "")
     thread_ts = event.get("ts")
+    attachments = event.get("files", [])
     logger.info(f"Bot was mentioned by {user}: {text}")
 
     try:
@@ -180,7 +256,7 @@ def handle_app_mention(event, say, logger):
         if isinstance(enriched_report, str):
             response_message = f"<@{user}> {enriched_report}"
         else:
-            ticket = create_linear_ticket(enriched_report)
+            ticket = create_linear_ticket(enriched_report, attachments)
             response_message = f"Thanks for reporting the bug, <@{user}>! A ticket has been created in Linear: {ticket.get('url', 'URL not available')}"
             
     except Exception as e:
