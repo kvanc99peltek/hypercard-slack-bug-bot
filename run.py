@@ -21,23 +21,7 @@ load_dotenv()
 # Initialize Slack Bolt app using your Bot token.
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 
-def validate_bug_report_context(raw_text):
-    """
-    Validates if the bug report has sufficient context based on length.
-    Returns (is_valid, error_message) tuple.
-    """
-    # Check if the text is too short
-    if len(raw_text.strip()) < 10:
-        return False, "Please provide more details about the issue. A good bug report should include what you were trying to do, what happened, and what you expected to happen."
-    
-    return True, None
-
 def enrich_bug_report(raw_text):
-    # First validate the context
-    is_valid, error_message = validate_bug_report_context(raw_text)
-    if not is_valid:
-        return error_message
-
     prompt = (
         "You are the best AI product manager. Read the following raw bug report and produce "
         "a structured ticket with the following exact format:\n\n"
@@ -175,14 +159,8 @@ def handle_app_mention(event, say, logger):
 
     try:
         enriched_report = enrich_bug_report(text)
-        
-        # Check if the enriched report is an error message (string)
-        if isinstance(enriched_report, str):
-            response_message = f"<@{user}> {enriched_report}"
-        else:
-            ticket = create_linear_ticket(enriched_report)
-            response_message = f"Thanks for reporting the bug, <@{user}>! A ticket has been created in Linear: {ticket.get('url', 'URL not available')}"
-            
+        ticket = create_linear_ticket(enriched_report)
+        response_message = f"Thanks for reporting the bug, <@{user}>! A ticket has been created in Linear: {ticket.get('url', 'URL not available')}"
     except Exception as e:
         logger.error(f"Error processing bug report from mention: {e}")
         response_message = f"Sorry <@{user}>, there was an error processing your bug report."
@@ -206,5 +184,5 @@ if __name__ == "__main__":
     bot_thread.start()
 
     # Bind Flask to the $PORT provided by Heroku.
-    port = int(os.environ.get("PORT", 5006))
+    port = int(os.environ.get("PORT", 5005))
     flask_app.run(host="0.0.0.0", port=port)
